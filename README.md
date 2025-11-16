@@ -40,7 +40,7 @@ npm run dev -- \
 - Reddit comments come from the public [pullpush.io](https://api.pullpush.io) search endpoint. Requests are chunked into `N`-month windows (default 6 months) from `start_epoch_s` (default 2017-01-01) through `end_epoch_s` (default now). Each request response is checksummed and cached to `.cache/<namespace>` so identical calls reuse disk hits.
 - The same cache layer now wraps OpenAI Responses calls as well. Category discovery and per-comment classifications are keyed by the prompt payload, so re-running the CLI over the same data skips duplicate LLM calls entirely.
 - The initial OpenAI call packs as many chronological comments as will fit beneath the configured context window minus an output reserve, then asks the model (default `gpt-5-nano-2025-08-07`) to emit a complete category list using structured outputs powered by the custom `jot` helper. When the source data includes unrelated chatter, the model is instructed to emit an `unrelated` category.
-- Every comment is re-run through the same model (default concurrency 10) to label it with one of the discovered categories, a sentiment enum (mapped to numeric scores in the CSV), dense one-sentence summary, and confidence bands for both category & sentiment. Classification responses are cached and the CLI streams each finalized row straight into the CSV once all earlier rows are ready, so memory usage stays low even for large exports.
+- Every comment is re-run through the same model (default concurrency 20) to label it with one of the discovered categories, a sentiment enum (mapped to numeric scores in the CSV), dense one-sentence summary, and confidence bands for both category & sentiment. Results always include two special categories: `unrelated` (off-topic) and `miscellaneous` (on-topic but not fitting other clusters). Classification responses are cached and the CLI streams each finalized row straight into the CSV once all earlier rows are ready, so memory usage stays low even for large exports.
 - You can limit the analysis to a comma-separated list of subreddits via `--subreddits`. Each subreddit is fetched, analyzed, and written to its own CSV, so you can compare niche communities without mixing their feedback.
 - Supplying `--product-description "..."` gives the LLM more context and reinforces that anything diverging from that description must be classified into the `unrelated` bucket.
 - The final CSV lives in `output/<ISO_TIMESTAMP>_<keyword>.csv` with columns `timestamp,iso_date,iso_year,category,sentiment_keyword,sentiment_number,category_confidence,sentiment_confidence,summary,subreddit,comment_link` sorted by newest comment first and written incrementally.
@@ -55,9 +55,9 @@ npm run dev -- \
 | `--months-per-batch` | Number of months per pullpush batch | `6` |
 | `--page-size` | Comments fetched per API call | `100` |
 | `--model` | OpenAI model id | `gpt-5-nano-2025-08-07` |
-| `--concurrency` | Parallel OpenAI classifications | `10` |
-| `--context-tokens` | Context budget for category discovery | `8000` |
-| `--output-reserve` | Tokens held back for structured output | `800` |
+| `--concurrency` | Parallel OpenAI classifications | `20` |
+| `--context-tokens` | Context budget for category discovery | `400000` |
+| `--output-reserve` | Tokens held back for structured output | `128000` |
 | `--request-spacing` | Minimum milliseconds between pullpush requests (helps respect ~100 req/hr rate limits) | `0` |
 | `--subreddits` | Comma-separated list of subreddit names to process individually (`r/` prefix optional) | *(all subreddits)* |
 | `--product-description` | One-sentence product summary injected into prompts | `The product "<keyword>".` |

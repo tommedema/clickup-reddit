@@ -50,10 +50,10 @@ async function main() {
     .option('--end-epoch <seconds>', 'End epoch seconds (overrides --end).')
     .option('--months-per-batch <number>', 'Months per API batch (default 6).')
     .option('--page-size <number>', 'Comments per API call (default 100).')
-    .option('--concurrency <number>', 'Concurrent LLM calls (default 10).')
+    .option('--concurrency <number>', 'Concurrent LLM calls (default 20).')
     .option('--model <id>', 'OpenAI model (default gpt-5-nano-2025-08-07).')
-    .option('--context-tokens <number>', 'Context window tokens for first pass (default 8000).')
-    .option('--output-reserve <number>', 'Tokens reserved for output when discovering categories (default 800).')
+    .option('--context-tokens <number>', 'Context window tokens for first pass (default 400000).')
+    .option('--output-reserve <number>', 'Tokens reserved for output when discovering categories (default 128000).')
     .option('--request-spacing <ms>', 'Minimum delay between HTTP requests in ms (default 0).')
     .option('--subreddits <names>', 'Comma-separated list of subreddit names to process individually.')
     .option('--product-description <text>', 'One-sentence summary of the product to provide additional context to the classifier.');
@@ -64,9 +64,9 @@ async function main() {
   const keyword = raw.keyword?.trim() || 'clickup';
   const monthsPerBatch = parsePositiveInteger(raw.monthsPerBatch, 6, 'months-per-batch');
   const pageSize = parsePositiveInteger(raw.pageSize, 100, 'page-size');
-  const concurrency = parsePositiveInteger(raw.concurrency, 10, 'concurrency');
-  const contextTokens = parsePositiveInteger(raw.contextTokens, 8000, 'context-tokens');
-  const outputReserve = parsePositiveInteger(raw.outputReserve, 800, 'output-reserve');
+  const concurrency = parsePositiveInteger(raw.concurrency, 20, 'concurrency');
+  const contextTokens = parsePositiveInteger(raw.contextTokens, 400000, 'context-tokens');
+  const outputReserve = parsePositiveInteger(raw.outputReserve, 128000, 'output-reserve');
   const requestSpacingMs = parseNonNegativeInteger(raw.requestSpacing, 0, 'request-spacing');
 
   const apiKey = process.env.OPENAI_API_KEY;

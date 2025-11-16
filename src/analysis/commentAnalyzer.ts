@@ -13,9 +13,12 @@ import { epochToIso } from '../utils/time.js';
 import { checksumFrom } from '../utils/hash.js';
 import { categoryListFormat, classificationFormat, type CategoryListPayload, type ClassificationPayload } from './schemas.js';
 import { LlmCache } from './llmCache.js';
+import { shuffle } from '../utils/shuffle.js';
 
-const CATEGORY_SAMPLE_RESERVE = 800;
-const MAX_CONTEXT_TOKENS = 8000;
+const CATEGORY_SAMPLE_RESERVE = 128000;
+const DEFAULT_CONTEXT_TOKENS = 400000;
+const CATEGORY_BUDGET_RATIO = 0.7;
+const MIN_CATEGORY_BUDGET = 2000;
 const MAX_CATEGORY_SAMPLE_BODY_CHARS = 1500;
 
 export interface CommentAnalyzerOptions {
@@ -50,9 +53,9 @@ export class CommentAnalyzer {
   ) {
     this.keyword = options.keyword;
     this.model = options.model;
-    this.contextTokens = options.contextTokens ?? MAX_CONTEXT_TOKENS;
+    this.contextTokens = options.contextTokens ?? DEFAULT_CONTEXT_TOKENS;
     this.reserveTokens = options.outputReserveTokens ?? CATEGORY_SAMPLE_RESERVE;
-    this.concurrency = options.concurrency ?? 10;
+    this.concurrency = options.concurrency ?? 20;
     this.logger = options.logger;
     this.productDescription = options.productDescription;
   }
@@ -103,12 +106,13 @@ export class CommentAnalyzer {
   }
 
   private async discoverCategories(comments: RedditComment[]): Promise<CategoryDefinition[]> {
-    const usableBudget = Math.max(this.contextTokens - this.reserveTokens, 500);
-    const ordered = [...comments].sort((a, b) => a.createdUtc - b.createdUtc);
+    const maxBudget = Math.max(this.contextTokens - this.reserveTokens, MIN_CATEGORY_BUDGET);
+    const usableBudget = Math.max(Math.floor(maxBudget * CATEGORY_BUDGET_RATIO), MIN_CATEGORY_BUDGET);
+    const randomized = shuffle([...comments]);
 
     const samples: string[] = [];
     let usedTokens = 0;
-    for (const comment of ordered) {
+    for (const comment of randomized) {
       const snippet = this.formatSample(comment);
       const tokens = approximateTokenCount(snippet);
       if (usedTokens + tokens > usableBudget && samples.length > 0) {
@@ -159,12 +163,14 @@ export class CommentAnalyzer {
       throw new Error('OpenAI response did not include parsed categories.');
     }
 
-    return parsed.categories.map((category) => ({
+    const mapped = parsed.categories.map((category) => ({
       slug: category.slug,
       label: category.label,
       description: category.description,
       signals: category.signals,
     }));
+
+    return this.ensureMandatoryCategories(mapped);
   }
 
   private async classifyComment(
@@ -243,15 +249,45 @@ export class CommentAnalyzer {
   }
 
   private buildCategoryPrompt(samples: string[], totalComments: number): string {
-    const header = `Below are ${samples.length} sampled comments (out of ${totalComments}) mentioning ${this.keyword}. Group them into the smallest useful list of categories (typically 3-8). Each category must have:\n- slug: lowercase words with hyphens\n- label: short readable name\n- description: one sentence\n- signals: 2-4 cues describing when to assign the category\n\nIf any sampled comment is clearly unrelated to the product description provided, ensure one category uses the slug "unrelated".`;
+    const header = `Below are ${samples.length} sampled comments (out of ${totalComments}) mentioning ${this.keyword}. Group them into the smallest useful list of categories (typically 3-8). Each category must have:\n- slug: lowercase words with hyphens\n- label: short readable name\n- description: one sentence\n- signals: 2-4 cues describing when to assign the category\n\nEnsure the output always includes two special slugs: "unrelated" (for comments unlikely to be about the product description) and "miscellaneous" (for on-topic comments that do not match any other category).`;
     return `${header}\n\nSamples:\n${samples.join('\n\n')}`;
   }
 
   private buildCategorySystemPrompt(): string {
-    return `You are an insight analyst summarizing real Reddit feedback about ${this.keyword}. Product summary: ${this.productDescription}. Identify distinct categories that marketing, product, or support teams would use. Always include an "unrelated" category whenever a comment is unlikely to be about this product.`;
+    return `You are an insight analyst summarizing real Reddit feedback about ${this.keyword}. Product summary: ${this.productDescription}. Identify distinct categories that marketing, product, or support teams would use. Always include two special categories: one with slug "unrelated" for comments unlikely about the product, and another with slug "miscellaneous" for relevant comments that do not belong elsewhere.`;
   }
 
   private buildClassificationSystemPrompt(): string {
-    return `Return structured data only. The product being studied is: ${this.productDescription}. When a comment is unlikely to refer to this product, set the category slug to "unrelated".`;
+    return `Return structured data only. The product being studied is: ${this.productDescription}. When a comment is unlikely to refer to this product, set the category slug to "unrelated". When it is about the product but does not clearly align with another category, set the slug to "miscellaneous".`;
+  }
+
+  private ensureMandatoryCategories(categories: CategoryDefinition[]): CategoryDefinition[] {
+    const existingSlugs = new Set(categories.map((cat) => cat.slug));
+    const required = [this.buildUnrelatedCategory(), this.buildMiscCategory()];
+    const merged = [...categories];
+    for (const mandatory of required) {
+      if (!existingSlugs.has(mandatory.slug)) {
+        merged.push(mandatory);
+      }
+    }
+    return merged;
+  }
+
+  private buildUnrelatedCategory(): CategoryDefinition {
+    return {
+      slug: 'unrelated',
+      label: 'Unrelated',
+      description: `Comments unlikely to refer to ${this.keyword} or the described product experience.`,
+      signals: ['mentions other products', 'gaming slang "click up"', 'spam or jokes not about productivity'],
+    };
+  }
+
+  private buildMiscCategory(): CategoryDefinition {
+    return {
+      slug: 'miscellaneous',
+      label: 'Miscellaneous',
+      description: `On-topic ${this.keyword} feedback that does not belong to any other category.`,
+      signals: ['general praise/complaints', 'mixed or unique workflows', 'edge cases'],
+    };
   }
 }
