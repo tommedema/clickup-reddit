@@ -18,10 +18,10 @@ interface RawRedditComment {
 }
 
 export interface PullpushClientOptions {
-  keyword: string;
-  cache: CacheClient;
-  monthsPerBatch: number;
-  startEpoch: number;
+  product: string;
+    cache: CacheClient;
+    monthsPerBatch: number;
+    startEpoch: number;
   endEpoch: number;
   subreddit?: string | undefined;
   namespace?: string;
@@ -37,7 +37,7 @@ const DEFAULT_BASE_URL = 'https://api.pullpush.io/reddit/search/comment/';
 const MIN_CURSOR_INCREMENT = 1;
 
 export class PullpushClient {
-  private readonly keyword: string;
+  private readonly product: string;
   private readonly cache: CacheClient;
   private readonly namespace: string;
   private readonly pageSize: number;
@@ -49,7 +49,7 @@ export class PullpushClient {
   private readonly logger: ((message: string) => void) | undefined;
 
   constructor(private readonly options: PullpushClientOptions) {
-    this.keyword = options.keyword;
+    this.product = options.product;
     this.cache = options.cache;
     this.namespace = options.namespace ?? 'pullpush-comments';
     this.pageSize = options.pageSize ?? 100;
@@ -96,7 +96,7 @@ export class PullpushClient {
       const after = Math.floor(cursor);
       const before = Math.floor(range.end);
       const query = new URLSearchParams({
-        q: this.keyword,
+        q: this.product,
         size: String(this.pageSize),
         sort_type: 'created_utc',
         sort: 'asc',
